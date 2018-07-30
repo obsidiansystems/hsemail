@@ -1,5 +1,5 @@
 name:                   hsemail
-version:                2
+version:                3
 synopsis:               Parsec parsers for the RFC2822 Internet Message format
 description:            Parsec parsers for the Internet Message format defined in RFC 2821 and 2822.
 category:               Parsing
@@ -28,9 +28,9 @@ library
   ghc-options: -Wall
   build-depends:
       base >= 3 && < 5
-    , old-time
     , parsec >= 3.1
     , mtl
+    , time
   exposed-modules:
       Text.Parsec.Rfc2234
       Text.Parsec.Rfc2821
@@ -47,8 +47,8 @@ test-suite test-hsemail
   ghc-options: -Wall
   build-depends:
       base >= 3 && < 5
-    , old-time
     , parsec >= 3.1
     , hspec
     , hsemail
+    , time
   default-language: Haskell2010

@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE PatternSynonyms #-}
 {- |
    Module      :  Text.Parsec.Rfc2822
    Copyright   :  (c) 2013 Peter Simons
@@ -22,7 +23,7 @@ import Data.Char ( ord )
 import Data.List ( intercalate )
 import Data.Maybe ( catMaybes )
 import Data.Monoid ( Monoid, mempty )
-import System.Time
+import Data.Time
 import Text.Parsec hiding (crlf)
 
 -- Customize hlint ...
@@ -243,7 +244,7 @@ unstructured    = do r1 <- option [] fws
 -- It will accept
 --
 -- >    40 Apr 2002 13:12 +0100
---
+
 -- as a perfectly valid date.
 --
 -- In order to get all fields set to meaningful values, and in order
@@ -253,28 +254,90 @@ unstructured    = do r1 <- option [] fws
 -- return /local time/. This will not necessarily be the time you're
 -- expecting.)
 
-date_time       :: Stream s m Char => ParsecT s u m CalendarTime
+newtype Month = Month { getMonth :: Int } deriving (Eq, Ord, Show, Read)
+
+pattern January :: Month
+pattern January = Month 1
+
+pattern February :: Month
+pattern February = Month 2
+
+pattern March :: Month
+pattern March = Month 3
+
+pattern April :: Month
+pattern April = Month 4
+
+pattern May :: Month
+pattern May = Month 5
+
+pattern June :: Month
+pattern June = Month 6
+
+pattern July :: Month
+pattern July = Month 7
+
+pattern August :: Month
+pattern August = Month 8
+
+pattern September :: Month
+pattern September = Month 9
+
+pattern October :: Month
+pattern October = Month 10
+
+pattern November :: Month
+pattern November = Month 11
+
+pattern December :: Month
+pattern December = Month 12
+
+newtype DayOfWeek = DayOfWeek { getDayOfWeek :: Int } deriving (Eq, Ord, Show, Read)
+
+pattern Monday :: DayOfWeek
+pattern Monday = DayOfWeek 1
+
+pattern Tuesday :: DayOfWeek
+pattern Tuesday = DayOfWeek 2
+
+pattern Wednesday :: DayOfWeek
+pattern Wednesday = DayOfWeek 3
+
+pattern Thursday :: DayOfWeek
+pattern Thursday = DayOfWeek 4
+
+pattern Friday :: DayOfWeek
+pattern Friday = DayOfWeek 5
+
+pattern Saturday :: DayOfWeek
+pattern Saturday = DayOfWeek 6
+
+pattern Sunday :: DayOfWeek
+pattern Sunday = DayOfWeek 7
+
+
+date_time       :: Stream s m Char => ParsecT s u m (ZonedTime, DayOfWeek)
 date_time       = do wd <- option Monday (try (do wd <- day_of_week
                                                   _ <- char ','
                                                   return wd))
-                     (y,m,d) <- date
+                     gregorian <- date
                      _ <- fws
                      (td,z) <- time
                      optional cfws
-                     return (CalendarTime y m d (tdHour td) (tdMin td) (tdSec td) 0 wd 0 "" z False)
+                     return (ZonedTime (LocalTime gregorian td) z, wd)
                   <?> "date/time specification"
 
 -- |This parser matches a 'day_name' or an 'obs_day_of_week' (optionally
--- wrapped in folding whitespace) and return its 'Day' value.
+-- wrapped in folding whitespace) and return its 'DayOfWeek' value.
 
-day_of_week     :: Stream s m Char => ParsecT s u m Day
+day_of_week     :: Stream s m Char => ParsecT s u m DayOfWeek
 day_of_week     =     try (between (optional fws) (optional fws) day_name <?> "name of a day-of-the-week")
                   <|> obs_day_of_week
 
 -- |This parser will the abbreviated weekday names (\"@Mon@\", \"@Tue@\", ...)
--- and return the appropriate 'Day' value.
+-- and return the appropriate 'DayOfWeek' value.
 
-day_name        :: Stream s m Char => ParsecT s u m Day
+day_name        :: Stream s m Char => ParsecT s u m DayOfWeek
 day_name        =     do { caseString "Mon"; return Monday }
                   <|> do { try (caseString "Tue"); return Tuesday }
                   <|> do { caseString "Wed"; return Wednesday }
@@ -288,19 +351,20 @@ day_name        =     do { caseString "Mon"; return Monday }
 -- a tripple of the form (Int,Month,Int) - corresponding to
 -- (year,month,day).
 
-date            :: Stream s m Char => ParsecT s u m (Int, Month, Int)
+date            :: Stream s m Char => ParsecT s u m Day
 date            = do d <- day
                      m <- month
                      y <- year
-                     return (y,m,d)
+                     Just gregorian <- return $ fromGregorianValid y (getMonth m) d
+                     return gregorian
                   <?> "date specification"
 
 -- |This parser will match a four digit number and return its integer
 -- value. No range checking is performed.
 
-year            :: Stream s m Char => ParsecT s u m Int
+year            :: Stream s m Char => ParsecT s u m Integer
 year            = do y <- manyN 4 digit
-                     return (read y :: Int)
+                     return (read y :: Integer)
                   <?> "year"
 
 -- |This parser will match a 'month_name', optionally wrapped in
@@ -345,7 +409,7 @@ day             = try obs_day <|> day_of_month <?> "day"
 -- 'zone'. It returns the tuple (TimeDiff,Int) corresponding to the
 -- return values of either parser.
 
-time            :: Stream s m Char => ParsecT s u m (TimeDiff, Int)
+time            :: Stream s m Char => ParsecT s u m (TimeOfDay, TimeZone)
 time            = do t <- time_of_day
                      _ <- fws
                      z <- zone
@@ -355,12 +419,12 @@ time            = do t <- time_of_day
 -- |This parser will match a time-of-day specification of \"@hh:mm@\" or
 -- \"@hh:mm:ss@\" and return the corrsponding time as a 'TimeDiff'.
 
-time_of_day     :: Stream s m Char => ParsecT s u m TimeDiff
+time_of_day     :: Stream s m Char => ParsecT s u m TimeOfDay
 time_of_day     = do h <- hour
                      _ <- char ':'
                      m <- minute
                      s <- option 0 (do { _ <- char ':'; second } )
-                     return (TimeDiff 0 0 0 h m s 0)
+                     return (TimeOfDay h m (fromInteger s))
                   <?> "time specification"
 
 -- |This parser will match a two-digit number and return its integer
@@ -382,24 +446,24 @@ minute          = do r <- replicateM 2 digit
 -- |This parser will match a two-digit number and return its integer
 -- value. No range checking takes place.
 
-second          :: Stream s m Char => ParsecT s u m Int
+second          :: Stream s m Char => ParsecT s u m Integer
 second          = do r <- replicateM 2 digit
-                     return (read r :: Int)
+                     return (read r :: Integer)
                   <?> "second"
 
 -- |This parser will match a timezone specification of the form
 -- \"@+hhmm@\" or \"@-hhmm@\" and return the zone's offset to UTC in
--- seconds as an integer. 'obs_zone' is matched as well.
+-- minutes as an integer. 'obs_zone' is matched as well.
 
-zone            :: Stream s m Char => ParsecT s u m Int
+zone            :: Stream s m Char => ParsecT s u m TimeZone
 zone            = (    do _ <- char '+'
                           h <- hour
                           m <- minute
-                          return (((h*60)+m)*60)
+                          return $ minutesToTimeZone ((h*60)+m)
                    <|> do _ <- char '-'
                           h <- hour
                           m <- minute
-                          return (-((h*60)+m)*60)
+                          return $ minutesToTimeZone (-((h*60)+m))
                    <?> "time zone"
                   )
                   <|> obs_zone
@@ -597,8 +661,8 @@ data Field      = OptionalField       String String
                 | Subject             String
                 | Comments            String
                 | Keywords            [[String]]
-                | Date                CalendarTime
-                | ResentDate          CalendarTime
+                | Date                ZonedTime DayOfWeek
+                | ResentDate          ZonedTime DayOfWeek
                 | ResentFrom          [NameAddr]
                 | ResentSender        NameAddr
                 | ResentTo            [NameAddr]
@@ -606,7 +670,7 @@ data Field      = OptionalField       String String
                 | ResentBcc           [NameAddr]
                 | ResentMessageID     String
                 | ResentReplyTo       [NameAddr]
-                | Received            ([(String,String)], CalendarTime)
+                | Received            [(String,String)] ZonedTime DayOfWeek
                 | ObsReceived         [(String,String)]
                 deriving (Show)
 
@@ -636,15 +700,15 @@ fields          = many (    try (do { r <- from; return (From r) })
                         <|> try (do { r <- subject; return (Subject r) })
                         <|> try (do { r <- comments; return (Comments r) })
                         <|> try (do { r <- keywords; return (Keywords r) })
-                        <|> try (do { r <- orig_date; return (Date r) })
-                        <|> try (do { r <- resent_date; return (ResentDate r) })
+                        <|> try (do { r <- orig_date; return (uncurry Date r) })
+                        <|> try (do { r <- resent_date; return (uncurry ResentDate r) })
                         <|> try (do { r <- resent_from; return (ResentFrom r) })
                         <|> try (do { r <- resent_sender; return (ResentSender r) })
                         <|> try (do { r <- resent_to; return (ResentTo r) })
                         <|> try (do { r <- resent_cc; return (ResentCc r) })
                         <|> try (do { r <- resent_bcc; return (ResentBcc r) })
                         <|> try (do { r <- resent_msg_id; return (ResentMessageID r) })
-                        <|> try (do { r <- received; return (Received r) })
+                        <|> try (do { (r, s) <- received; return (uncurry (Received r) s) })
                          -- catch all
                         <|> (do { (name,cont) <- optional_field; return (OptionalField name cont) })
                        )
@@ -655,7 +719,7 @@ fields          = many (    try (do { r <- from; return (From r) })
 -- |Parse a \"@Date:@\" header line and return the date it contains a
 -- 'CalendarTime'.
 
-orig_date       :: Stream s m Char => ParsecT s u m CalendarTime
+orig_date       :: Stream s m Char => ParsecT s u m (ZonedTime, DayOfWeek)
 orig_date       = header "Date" date_time
 
 
@@ -803,7 +867,7 @@ keywords        = header "Keywords" (do r1 <- phrase
 -- |Parse a \"@Resent-Date:@\" header line and return the date it
 -- contains as 'CalendarTime'.
 
-resent_date     :: Stream s m Char => ParsecT s u m CalendarTime
+resent_date     :: Stream s m Char => ParsecT s u m (ZonedTime, DayOfWeek)
 resent_date     = header "Resent-Date" date_time
 
 -- |Parse a \"@Resent-From:@\" header line and return the 'mailbox_list'
@@ -864,7 +928,7 @@ path            = unfold ( try (do _ <- char '<'
                          )
                   <?> "return path spec"
 
-received        :: Stream s m Char => ParsecT s u m ([(String,String)], CalendarTime)
+received        :: Stream s m Char => ParsecT s u m ([(String,String)], (ZonedTime, DayOfWeek))
 received        = header "Received" (do r1 <- name_val_list
                                         _ <- char ';'
                                         r2 <- date_time
@@ -1008,7 +1072,7 @@ obs_fws         = do r1 <- many1 wsp
 
 -- |Parse a 'day_name' but allow for the obsolete folding syntax.
 
-obs_day_of_week :: Stream s m Char => ParsecT s u m Day
+obs_day_of_week :: Stream s m Char => ParsecT s u m DayOfWeek
 obs_day_of_week = unfold day_name <?> "day-of-the-week name"
 
 -- |Parse a 'year' but allow for a two-digit number (obsolete) and the
@@ -1046,12 +1110,12 @@ obs_minute      = unfold minute <?> "minute"
 
 -- |Parse a 'second' but allow for the obsolete folding syntax.
 
-obs_second      :: Stream s m Char => ParsecT s u m Int
+obs_second      :: Stream s m Char => ParsecT s u m Integer
 obs_second      = unfold second <?> "second"
 
 -- |Match the obsolete zone names and return the appropriate offset.
 
-obs_zone        :: Stream s m Char => ParsecT s u m Int
+obs_zone        :: Stream s m Char => ParsecT s u m TimeZone
 obs_zone        = choice [ mkZone "UT"  0
                          , mkZone "GMT" 0
                          , mkZone "EST" (-5)
@@ -1062,12 +1126,12 @@ obs_zone        = choice [ mkZone "UT"  0
                          , mkZone "MDT" (-6)
                          , mkZone "PST" (-8)
                          , mkZone "PDT" (-7)
-                         , do { r <- oneOf ['A'..'I']; return $ (ord r - 64) * 60*60 }  <?> "military zone spec"
-                         , do { r <- oneOf ['K'..'M']; return $ (ord r - 65) * 60*60 }  <?> "military zone spec"
-                         , do { r <- oneOf ['N'..'Y']; return $ -(ord r - 77) * 60*60 } <?> "military zone spec"
-                         , do { _ <- char 'Z'; return 0 }                               <?> "military zone spec"
+                         , do { r <- oneOf ['A'..'I']; return $ minutesToTimeZone $ (ord r - 64) * 60 }  <?> "military zone spec"
+                         , do { r <- oneOf ['K'..'M']; return $ minutesToTimeZone $ (ord r - 65) * 60 }  <?> "military zone spec"
+                         , do { r <- oneOf ['N'..'Y']; return $ minutesToTimeZone $ -(ord r - 77) * 60 } <?> "military zone spec"
+                         , do { _ <- char 'Z'; return $ minutesToTimeZone 0 }                               <?> "military zone spec"
                          ]
-    where mkZone n o  = try $ do { _ <- string n; return (o*60*60) }
+    where mkZone n o  = try $ do { _ <- string n; return (minutesToTimeZone (o*60)) }
 
 
 -- * Obsolete Addressing (section 4.4)
@@ -1195,8 +1259,8 @@ obs_fields      = many (    try (do { r <- obs_from; return (From r) })
                         <|> try (do { r <- obs_subject; return (Subject r) })
                         <|> try (do { r <- obs_comments; return (Comments r) })
                         <|> try (do { r <- obs_keywords; return (Keywords [r]) })
-                        <|> try (do { r <- obs_orig_date; return (Date r) })
-                        <|> try (do { r <- obs_resent_date; return (ResentDate r) })
+                        <|> try (do { r <- obs_orig_date; return (uncurry Date r) })
+                        <|> try (do { r <- obs_resent_date; return (uncurry ResentDate r) })
                         <|> try (do { r <- obs_resent_from; return (ResentFrom r) })
                         <|> try (do { r <- obs_resent_send; return (ResentSender r) })
                         <|> try (do { r <- obs_resent_to; return (ResentTo r) })
@@ -1215,7 +1279,7 @@ obs_fields      = many (    try (do { r <- obs_from; return (From r) })
 -- |Parse a 'date' header line but allow for the obsolete
 -- folding syntax.
 
-obs_orig_date   :: Stream s m Char => ParsecT s u m CalendarTime
+obs_orig_date   :: Stream s m Char => ParsecT s u m (ZonedTime, DayOfWeek)
 obs_orig_date   = obs_header "Date" date_time
 
 
@@ -1341,7 +1405,7 @@ obs_resent_send = obs_header "Resent-Sender" mailbox
 -- |Parse a 'resent_date' header line but allow for the obsolete
 -- folding syntax.
 
-obs_resent_date :: Stream s m Char => ParsecT s u m CalendarTime
+obs_resent_date :: Stream s m Char => ParsecT s u m (ZonedTime, DayOfWeek)
 obs_resent_date = obs_header "Resent-Date" date_time
 
 -- |Parse a 'resent_to' header line but allow for the obsolete

@@ -1,7 +1,8 @@
 module Main ( main ) where
 
+import Data.Time.Calendar
+import Data.Time.LocalTime
 import Test.Hspec
-import System.Time ( CalendarTime(..), Month(..), Day(..) )
 import Text.Parsec ( parse, eof )
 import Text.Parsec.String ( Parser )
 import Text.Parsec.Rfc2822
@@ -25,11 +26,11 @@ main = hspec $ do
   describe "Rfc2822.quoted_pair" $
     it "can quote a nul byte" $
       parseIdemTest quoted_pair "\\\0"
-
   describe "Rfc2822.date_time" $
     it "parses hand-picked times correctly" $
-      parseTest date_time "Fri, 21 Dec 2012 00:07:43 +0300" `shouldReturn`
-        CalendarTime 2012 December 21 0 7 43 0 Friday 0 "" 10800 False
+      parseTest (fmap (\(zt, dow) -> (zonedTimeToUTC zt, dow)) date_time) "Fri, 21 Dec 2012 00:07:43 +0300" `shouldReturn`
+        (zonedTimeToUTC (ZonedTime (LocalTime (fromGregorian 2012 12 21) (TimeOfDay 0 7 (fromInteger 43))) (hoursToTimeZone 3)), Friday)
+        -- CalendarTime 2012 December 21 0 7 43 0 Friday 0 "" 10800 False
 
   describe "Rfc2822.day" $ do
     it "parses a hand-picked day-of-months correctly" $ do

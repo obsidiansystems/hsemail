@@ -1,4 +1,15 @@
-# ignore cabal build files
+**/dist
+**/.cabal-sandbox
+**/cabal.sandbox.config
+result
+*.o
+*.hi
 
-/dist
-/dist-newstyle
+TAGS
+tags
+ctags
+dist-newstyle
+cabal.project.local
+.ghc.environment.*
+
+**/ghcid-output.txt
