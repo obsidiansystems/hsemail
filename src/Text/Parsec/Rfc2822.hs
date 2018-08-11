@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PatternSynonyms #-}
 {- |
@@ -19,11 +20,13 @@ module Text.Parsec.Rfc2822 where
 import Text.Parsec.Rfc2234 hiding ( quoted_pair, quoted_string )
 
 import Control.Monad ( replicateM )
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Char ( ord )
 import Data.List ( intercalate )
 import Data.Maybe ( catMaybes )
 import Data.Monoid ( Monoid, mempty )
 import Data.Time
+import GHC.Generics (Generic)
 import Text.Parsec hiding (crlf)
 
 -- Customize hlint ...
@@ -477,7 +480,10 @@ zone            = (    do _ <- char '+'
 data NameAddr = NameAddr { nameAddr_name :: Maybe String
                          , nameAddr_addr :: String
                          }
-                deriving (Show,Eq)
+                deriving (Show,Eq,Generic,Ord,Read)
+
+instance ToJSON NameAddr
+instance FromJSON NameAddr
 
 -- |Parse a single 'mailbox' or an address 'group' and return the
 -- address(es).
@@ -672,7 +678,7 @@ data Field      = OptionalField       String String
                 | ResentReplyTo       [NameAddr]
                 | Received            [(String,String)] ZonedTime DayOfWeek
                 | ObsReceived         [(String,String)]
-                deriving (Show)
+                deriving (Show, Generic)
 
 -- |This parser will parse an arbitrary number of header fields as
 -- defined in this RFC. For each field, an appropriate 'Field' value

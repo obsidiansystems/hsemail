@@ -28,6 +28,7 @@ library
   ghc-options: -Wall
   build-depends:
       base >= 3 && < 5
+    , aeson
     , parsec >= 3.1
     , mtl
     , time
@@ -47,6 +48,7 @@ test-suite test-hsemail
   ghc-options: -Wall
   build-depends:
       base >= 3 && < 5
+    , aeson
     , parsec >= 3.1
     , hspec
     , hsemail
